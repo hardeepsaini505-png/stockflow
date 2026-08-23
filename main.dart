@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -791,7 +794,167 @@ class _ItemsPageState extends State<ItemsPage> {
   }
 }
 
-class BackupRestorePage extends StatefulWidget {\n  final AppStore store;\n  const BackupRestorePage({super.key, required this.store});\n\n  @override\n  State<BackupRestorePage> createState() => _BackupRestorePageState();\n}\n\nclass _BackupRestorePageState extends State<BackupRestorePage> {\n  bool busy = false;\n\n  Future<void> _createBackup() async {\n    setState(() => busy = true);\n    try {\n      final jsonText = const JsonEncoder.withIndent('  ')\n          .convert(widget.store.exportBackup());\n      final dir = await getTemporaryDirectory();\n      final file = File(\n        '${dir.path}/stockflow_backup_${DateTime.now().millisecondsSinceEpoch}.json',\n      );\n      await file.writeAsString(jsonText);\n      await Share.shareXFiles(\n        [XFile(file.path, mimeType: 'application/json')],\n        text: 'StockFlow Backup - keep this file safe for restore',\n        subject: 'StockFlow Backup',\n      );\n    } catch (e) {\n      if (mounted) {\n        ScaffoldMessenger.of(context).showSnackBar(\n          SnackBar(content: Text('Backup failed: $e')),\n        );\n      }\n    } finally {\n      if (mounted) setState(() => busy = false);\n    }\n  }\n\n  Future<void> _restoreBackup() async {\n    setState(() => busy = true);\n    try {\n      final result = await FilePicker.platform.pickFiles(\n        type: FileType.custom,\n        allowedExtensions: ['json'],\n        withData: true,\n      );\n      if (result == null) return;\n\n      final picked = result.files.single;\n      final bytes = picked.bytes;\n      String text;\n      if (bytes != null) {\n        text = utf8.decode(bytes);\n      } else if (picked.path != null) {\n        text = await File(picked.path!).readAsString();\n      } else {\n        throw const FormatException('Could not read selected backup');\n      }\n\n      final decoded = jsonDecode(text);\n      if (decoded is! Map) throw const FormatException('Invalid backup');\n\n      final ok = await showDialog<bool>(\n        context: context,\n        builder: (dialogContext) => AlertDialog(\n          title: const Text('Restore Backup?'),\n          content: const Text(\n            'Restore करने से वर्तमान firm details, items, stock और history backup वाले data से replace हो जाएंगे.',\n          ),\n          actions: [\n            TextButton(\n              onPressed: () => Navigator.pop(dialogContext, false),\n              child: const Text('Cancel'),\n            ),\n            FilledButton(\n              onPressed: () => Navigator.pop(dialogContext, true),\n              child: const Text('Restore'),\n            ),\n          ],\n        ),\n      );\n\n      if (ok == true) {\n        await widget.store.restoreBackup(Map<String, dynamic>.from(decoded));\n        if (mounted) {\n          ScaffoldMessenger.of(context).showSnackBar(\n            const SnackBar(content: Text('Backup successfully restored.')),\n          );\n          setState(() {});\n        }\n      }\n    } catch (e) {\n      if (mounted) {\n        ScaffoldMessenger.of(context).showSnackBar(\n          SnackBar(content: Text('Restore failed: $e')),\n        );\n      }\n    } finally {\n      if (mounted) setState(() => busy = false);\n    }\n  }\n\n  @override\n  Widget build(BuildContext context) {\n    return Scaffold(\n      appBar: AppBar(title: const Text('Backup & Restore')),\n      body: Padding(\n        padding: const EdgeInsets.all(18),\n        child: Column(\n          children: [\n            const Icon(Icons.backup, size: 70),\n            const SizedBox(height: 12),\n            const Text(\n              'Backup में firm details, सभी items, current stock और पूरी stock history save होगी.',\n              textAlign: TextAlign.center,\n              style: TextStyle(fontSize: 16),\n            ),\n            const SizedBox(height: 24),\n            SizedBox(\n              width: double.infinity,\n              child: FilledButton.icon(\n                onPressed: busy ? null : _createBackup,\n                icon: const Icon(Icons.upload_file),\n                label: const Text('Create Backup & Share'),\n              ),\n            ),\n            const SizedBox(height: 12),\n            SizedBox(\n              width: double.infinity,\n              child: OutlinedButton.icon(\n                onPressed: busy ? null : _restoreBackup,\n                icon: const Icon(Icons.restore),\n                label: const Text('Restore Backup'),\n              ),\n            ),\n            if (busy) ...[\n              const SizedBox(height: 20),\n              const CircularProgressIndicator(),\n            ],\n            const SizedBox(height: 20),\n            const Text(\n              'Tip: Backup file को WhatsApp, Google Drive या किसी सुरक्षित जगह पर रख सकते हैं। APK uninstall करने से पहले backup जरूर लें.',\n              textAlign: TextAlign.center,\n            ),\n          ],\n        ),\n      ),\n    );\n  }\n}\n\nclass ReportsPage extends StatelessWidget {
+class BackupRestorePage extends StatefulWidget {
+  final AppStore store;
+  const BackupRestorePage({super.key, required this.store});
+
+  @override
+  State<BackupRestorePage> createState() => _BackupRestorePageState();
+}
+
+class _BackupRestorePageState extends State<BackupRestorePage> {
+  bool busy = false;
+
+  Future<void> _createBackup() async {
+    setState(() => busy = true);
+    try {
+      final jsonText = const JsonEncoder.withIndent('  ')
+          .convert(widget.store.exportBackup());
+
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/stockflow_backup_${DateTime.now().millisecondsSinceEpoch}.json',
+      );
+
+      await file.writeAsString(jsonText);
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/json')],
+        text: 'StockFlow Backup - keep this file safe for restore',
+        subject: 'StockFlow Backup',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Backup failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _restoreBackup() async {
+    setState(() => busy = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+
+      if (result == null) return;
+
+      final picked = result.files.single;
+      final bytes = picked.bytes;
+
+      String text;
+      if (bytes != null) {
+        text = utf8.decode(bytes);
+      } else if (picked.path != null) {
+        text = await File(picked.path!).readAsString();
+      } else {
+        throw const FormatException('Could not read selected backup');
+      }
+
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) {
+        throw const FormatException('Invalid backup');
+      }
+
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Restore Backup?'),
+          content: const Text(
+            'Restore करने से वर्तमान firm details, items, stock और history backup वाले data से replace हो जाएंगे.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Restore'),
+            ),
+          ],
+        ),
+      );
+
+      if (ok == true) {
+        await widget.store.restoreBackup(
+          Map<String, dynamic>.from(decoded),
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Backup successfully restored.')),
+          );
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Restore failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Backup & Restore')),
+      body: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          children: [
+            const Icon(Icons.backup, size: 70),
+            const SizedBox(height: 12),
+            const Text(
+              'Backup में firm details, सभी items, current stock और पूरी stock history save होगी.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: busy ? null : _createBackup,
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Create Backup & Share'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: busy ? null : _restoreBackup,
+                icon: const Icon(Icons.restore),
+                label: const Text('Restore Backup'),
+              ),
+            ),
+            if (busy) ...[
+              const SizedBox(height: 20),
+              const CircularProgressIndicator(),
+            ],
+            const SizedBox(height: 20),
+            const Text(
+              'Tip: Backup file को WhatsApp, Google Drive या किसी सुरक्षित जगह पर रख सकते हैं। APK uninstall करने से पहले backup जरूर लें.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ReportsPage extends StatelessWidget {
   final AppStore store;
   const ReportsPage({super.key, required this.store});
 
