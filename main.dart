@@ -236,6 +236,7 @@ class _HomePageState extends State<HomePage> {
                 _menu(Icons.shopping_cart, 'Order', Colors.deepPurple, () => _orderPage(context)),
                 _menu(Icons.picture_as_pdf, 'PDF Reports', Colors.blueGrey, () => _reportsPage(context)),
                 _menu(Icons.settings, 'Firm Settings', Colors.teal, () => _firmDialog(context)),
+                _menu(Icons.edit_note, 'Item Master', Colors.cyan, () => _itemsPage(context)),
               ],
             ),
           ],
@@ -383,6 +384,10 @@ class _HomePageState extends State<HomePage> {
 
   void _orderPage(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => OrderPage(store: store)));
+  }
+
+  void _itemsPage(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ItemsPage(store: store)));
   }
 
   void _reportsPage(BuildContext context) {
@@ -652,6 +657,107 @@ class OrderRow {
   final int qty;
   final String status;
   OrderRow(this.name, this.qty, this.status);
+}
+
+class ItemsPage extends StatefulWidget {
+  final AppStore store;
+  const ItemsPage({super.key, required this.store});
+  @override
+  State<ItemsPage> createState() => _ItemsPageState();
+}
+
+class _ItemsPageState extends State<ItemsPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Item Master'),
+        actions: [IconButton(icon: const Icon(Icons.add), onPressed: _addItem)],
+      ),
+      body: widget.store.items.isEmpty
+          ? const Center(child: Text('अभी कोई item नहीं है।'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: widget.store.items.length,
+              itemBuilder: (_, i) {
+                final x = widget.store.items[i];
+                final c = x.stock == 0 ? Colors.red : x.stock <= 2 ? Colors.amber.shade800 : Colors.green;
+                return Card(
+                  child: ListTile(
+                    leading: CircleAvatar(child: Icon(Icons.inventory_2, color: c)),
+                    title: Text(x.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('Balance: ${x.stock} ${x.unit}'),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      IconButton(tooltip: 'Update Item', icon: const Icon(Icons.edit), onPressed: () => _editItem(x)),
+                      IconButton(tooltip: 'Delete Item', icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteItem(x)),
+                    ]),
+                  ),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addItem, icon: const Icon(Icons.add), label: const Text('Add Item'),
+      ),
+    );
+  }
+
+  Future<void> _addItem() async {
+    final n=TextEditingController(); final u=TextEditingController(text:'pcs');
+    await showDialog(context: context, builder: (dc)=>AlertDialog(
+      title: const Text('Add Item'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller:n, autofocus:true, decoration:const InputDecoration(labelText:'Item / Part Name')),
+        TextField(controller:u, decoration:const InputDecoration(labelText:'Unit')),
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dc), child:const Text('Cancel')),
+        FilledButton(onPressed:() async {
+          final name=n.text.trim(); if(name.isEmpty) return;
+          final exact=widget.store.items.any((x)=>x.name.toLowerCase()==name.toLowerCase());
+          if(exact){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('यह item पहले से बना हुआ है।')));return;}
+          final similar=widget.store.items.where((x){final a=x.name.toLowerCase(),b=name.toLowerCase();return a.contains(b)||b.contains(a);}).toList();
+          if(similar.isNotEmpty){
+            final ok=await showDialog<bool>(context:context,builder:(wc)=>AlertDialog(
+              title:const Text('Similar Item Found'),
+              content:Text('Similar item: ${similar.map((x)=>x.name).join(', ')}\n\nफिर भी नया item बनाना है?'),
+              actions:[TextButton(onPressed:()=>Navigator.pop(wc,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(wc,true),child:const Text('Create'))],
+            ));
+            if(ok!=true)return;
+          }
+          await widget.store.addItem(name,u.text); if(dc.mounted)Navigator.pop(dc); setState((){});
+        }, child:const Text('Add')),
+      ],
+    ));
+  }
+
+  Future<void> _editItem(StockItem item) async {
+    final n=TextEditingController(text:item.name); final u=TextEditingController(text:item.unit);
+    await showDialog(context:context,builder:(dc)=>AlertDialog(
+      title:const Text('Update Item'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:n,decoration:const InputDecoration(labelText:'Item / Part Name')),
+        TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dc),child:const Text('Cancel')),
+        FilledButton(onPressed:()async{
+          final name=n.text.trim(); if(name.isEmpty)return;
+          final dup=widget.store.items.any((o)=>o!=item&&o.name.toLowerCase()==name.toLowerCase());
+          if(dup){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('यह नाम पहले से मौजूद है।')));return;}
+          item.name=name; item.unit=u.text.trim().isEmpty?'pcs':u.text.trim(); await widget.store.save(); if(dc.mounted)Navigator.pop(dc); setState((){});
+        },child:const Text('Update')),
+      ],
+    ));
+  }
+
+  Future<void> _deleteItem(StockItem item) async {
+    final ok=await showDialog<bool>(context:context,builder:(dc)=>AlertDialog(
+      title:const Text('Delete Item'),
+      content:Text('क्या “${item.name}” को delete करना है?\n\nइसका stock और history भी delete हो जाएगी।'),
+      actions:[TextButton(onPressed:()=>Navigator.pop(dc,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(dc,true),child:const Text('Delete'))],
+    ));
+    if(ok==true){await widget.store.deleteItem(item);setState((){});}
+  }
 }
 
 class ReportsPage extends StatelessWidget {
