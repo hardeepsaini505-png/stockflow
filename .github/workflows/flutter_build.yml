@@ -1,0 +1,45 @@
+name: Build StockFlow APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.2"
+          channel: stable
+          cache: true
+
+      - name: Create Flutter project
+        run: flutter create --project-name stockflow --org com.stockflow build_app
+
+      - name: Copy app files
+        run: |
+          cp main.dart build_app/lib/main.dart
+          cp pubspec.yaml build_app/pubspec.yaml
+
+      - name: Install packages
+        run: |
+          cd build_app
+          flutter pub get
+
+      - name: Build APK
+        run: |
+          cd build_app
+          flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockflow-apk
+          path: build_app/build/app/outputs/flutter-apk/app-release.apk
