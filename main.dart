@@ -113,6 +113,29 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Map<String, dynamic> exportBackup() => {
+        'backupVersion': 1,
+        'createdAt': DateTime.now().toIso8601String(),
+        'firmName': firmName,
+        'address': address,
+        'mobile': mobile,
+        'items': items.map((e) => e.toJson()).toList(),
+      };
+
+  Future<void> restoreBackup(Map<String, dynamic> data) async {
+    final rawItems = data['items'];
+    if (rawItems is! List) {
+      throw const FormatException('Invalid backup file');
+    }
+    firmName = (data['firmName'] ?? '').toString();
+    address = (data['address'] ?? '').toString();
+    mobile = (data['mobile'] ?? '').toString();
+    items = rawItems
+        .map((e) => StockItem.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    await save();
+  }
+
   Future<void> setFirm(String n, String a, String m) async {
     firmName = n.trim();
     address = a.trim();
@@ -237,6 +260,7 @@ class _HomePageState extends State<HomePage> {
                 _menu(Icons.picture_as_pdf, 'PDF Reports', Colors.blueGrey, () => _reportsPage(context)),
                 _menu(Icons.settings, 'Firm Settings', Colors.teal, () => _firmDialog(context)),
                 _menu(Icons.edit_note, 'Item Master', Colors.cyan, () => _itemsPage(context)),
+                _menu(Icons.backup, 'Backup & Restore', Colors.blueGrey, () => _backupPage(context)),
               ],
             ),
           ],
@@ -388,6 +412,13 @@ class _HomePageState extends State<HomePage> {
 
   void _itemsPage(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => ItemsPage(store: store)));
+  }
+
+  void _backupPage(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => BackupRestorePage(store: store)),
+    );
   }
 
   void _reportsPage(BuildContext context) {
@@ -760,7 +791,7 @@ class _ItemsPageState extends State<ItemsPage> {
   }
 }
 
-class ReportsPage extends StatelessWidget {
+class BackupRestorePage extends StatefulWidget {\n  final AppStore store;\n  const BackupRestorePage({super.key, required this.store});\n\n  @override\n  State<BackupRestorePage> createState() => _BackupRestorePageState();\n}\n\nclass _BackupRestorePageState extends State<BackupRestorePage> {\n  bool busy = false;\n\n  Future<void> _createBackup() async {\n    setState(() => busy = true);\n    try {\n      final jsonText = const JsonEncoder.withIndent('  ')\n          .convert(widget.store.exportBackup());\n      final dir = await getTemporaryDirectory();\n      final file = File(\n        '${dir.path}/stockflow_backup_${DateTime.now().millisecondsSinceEpoch}.json',\n      );\n      await file.writeAsString(jsonText);\n      await Share.shareXFiles(\n        [XFile(file.path, mimeType: 'application/json')],\n        text: 'StockFlow Backup - keep this file safe for restore',\n        subject: 'StockFlow Backup',\n      );\n    } catch (e) {\n      if (mounted) {\n        ScaffoldMessenger.of(context).showSnackBar(\n          SnackBar(content: Text('Backup failed: $e')),\n        );\n      }\n    } finally {\n      if (mounted) setState(() => busy = false);\n    }\n  }\n\n  Future<void> _restoreBackup() async {\n    setState(() => busy = true);\n    try {\n      final result = await FilePicker.platform.pickFiles(\n        type: FileType.custom,\n        allowedExtensions: ['json'],\n        withData: true,\n      );\n      if (result == null) return;\n\n      final picked = result.files.single;\n      final bytes = picked.bytes;\n      String text;\n      if (bytes != null) {\n        text = utf8.decode(bytes);\n      } else if (picked.path != null) {\n        text = await File(picked.path!).readAsString();\n      } else {\n        throw const FormatException('Could not read selected backup');\n      }\n\n      final decoded = jsonDecode(text);\n      if (decoded is! Map) throw const FormatException('Invalid backup');\n\n      final ok = await showDialog<bool>(\n        context: context,\n        builder: (dialogContext) => AlertDialog(\n          title: const Text('Restore Backup?'),\n          content: const Text(\n            'Restore करने से वर्तमान firm details, items, stock और history backup वाले data से replace हो जाएंगे.',\n          ),\n          actions: [\n            TextButton(\n              onPressed: () => Navigator.pop(dialogContext, false),\n              child: const Text('Cancel'),\n            ),\n            FilledButton(\n              onPressed: () => Navigator.pop(dialogContext, true),\n              child: const Text('Restore'),\n            ),\n          ],\n        ),\n      );\n\n      if (ok == true) {\n        await widget.store.restoreBackup(Map<String, dynamic>.from(decoded));\n        if (mounted) {\n          ScaffoldMessenger.of(context).showSnackBar(\n            const SnackBar(content: Text('Backup successfully restored.')),\n          );\n          setState(() {});\n        }\n      }\n    } catch (e) {\n      if (mounted) {\n        ScaffoldMessenger.of(context).showSnackBar(\n          SnackBar(content: Text('Restore failed: $e')),\n        );\n      }\n    } finally {\n      if (mounted) setState(() => busy = false);\n    }\n  }\n\n  @override\n  Widget build(BuildContext context) {\n    return Scaffold(\n      appBar: AppBar(title: const Text('Backup & Restore')),\n      body: Padding(\n        padding: const EdgeInsets.all(18),\n        child: Column(\n          children: [\n            const Icon(Icons.backup, size: 70),\n            const SizedBox(height: 12),\n            const Text(\n              'Backup में firm details, सभी items, current stock और पूरी stock history save होगी.',\n              textAlign: TextAlign.center,\n              style: TextStyle(fontSize: 16),\n            ),\n            const SizedBox(height: 24),\n            SizedBox(\n              width: double.infinity,\n              child: FilledButton.icon(\n                onPressed: busy ? null : _createBackup,\n                icon: const Icon(Icons.upload_file),\n                label: const Text('Create Backup & Share'),\n              ),\n            ),\n            const SizedBox(height: 12),\n            SizedBox(\n              width: double.infinity,\n              child: OutlinedButton.icon(\n                onPressed: busy ? null : _restoreBackup,\n                icon: const Icon(Icons.restore),\n                label: const Text('Restore Backup'),\n              ),\n            ),\n            if (busy) ...[\n              const SizedBox(height: 20),\n              const CircularProgressIndicator(),\n            ],\n            const SizedBox(height: 20),\n            const Text(\n              'Tip: Backup file को WhatsApp, Google Drive या किसी सुरक्षित जगह पर रख सकते हैं। APK uninstall करने से पहले backup जरूर लें.',\n              textAlign: TextAlign.center,\n            ),\n          ],\n        ),\n      ),\n    );\n  }\n}\n\nclass ReportsPage extends StatelessWidget {
   final AppStore store;
   const ReportsPage({super.key, required this.store});
 
