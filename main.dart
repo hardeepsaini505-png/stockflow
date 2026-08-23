@@ -834,6 +834,45 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     }
   }
 
+  Future<void> _downloadBackup() async {
+    setState(() => busy = true);
+    try {
+      final jsonText = const JsonEncoder.withIndent('  ')
+          .convert(widget.store.exportBackup());
+
+      final fileName =
+          'stockflow_backup_${DateTime.now().millisecondsSinceEpoch}.json';
+
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save StockFlow Backup',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        bytes: utf8.encode(jsonText),
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              savedPath == null
+                  ? 'Backup download cancelled.'
+                  : 'Backup downloaded successfully.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> _restoreBackup() async {
     setState(() => busy = true);
     try {
@@ -927,6 +966,15 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 onPressed: busy ? null : _createBackup,
                 icon: const Icon(Icons.upload_file),
                 label: const Text('Create Backup & Share'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: busy ? null : _downloadBackup,
+                icon: const Icon(Icons.download),
+                label: const Text('Download Backup'),
               ),
             ),
             const SizedBox(height: 12),
